@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>McCowan Family Fund</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        pre {
+            background-color: #fff;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            white-space: pre-wrap; /* Preserves line breaks and wraps text */
+            font-family: 'Courier New', Courier, monospace;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .error {
+            color: red;
+            font-style: italic;
+        }
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>McCowan Family Fund – Structure & Rules</h1>
+        <pre id="fundContent">Loading Fund.txt...</pre>
+        <p id="errorMessage" class="error"></p>
+    </div>
+
+    <script>
+        // Replace with the actual path to your Fund.txt file
+        const fileUrl = 'Fund.txt'; // Update this if hosted online (e.g., 'https://yourdomain.com/Fund.txt')
+
+        fetch(fileUrl)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Unable to load Fund.txt. Please ensure the file is accessible.');
+                }
+                return response.text();
+            })
+            .then(data => {
+                document.getElementById('fundContent').textContent = data;
+            })
+            .catch(error => {
+                document.getElementById('errorMessage').textContent = error.message;
+            });
+    </script>
+</body>
+</html>
