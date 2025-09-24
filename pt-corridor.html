@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>P.T. Infinite Corridor Horror</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: Arial, sans-serif; }
+        canvas { display: block; cursor: none; }
+        #instructions {
+            position: absolute; top: 10px; left: 10px; color: #fff; background: rgba(0,0,0,0.7); padding: 10px; z-index: 10;
+        }
+        #hud { position: absolute; bottom: 10px; left: 10px; color: #ff0000; background: rgba(0,0,0,0.7); padding: 5px; z-index: 10; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="instructions">Click to play. WASD: Move | Arrows/Mouse: Look | Escape: Free</div>
+    <div id="hud">Loop: <span id="loopCount">0</span> | Whispers: Listen...</div>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Player state
+        let posX = 2, posY = 2; // Start in corridor
+        let dirX = 0, dirY = -1; // Facing forward
+        let planeX = -0.66, planeY = 0; // FOV
+        let loopCount = 0;
+        let time = 0;
+        const keys = {};
+        let mouseSensitivity = 0.002;
+
+        // Simple corridor map (walls=1, open=0) - 8x6 for performance
+        const map = [
+            [1,1,1,1,1,1,1,1],
+            [1,0,0,0,0,0,0,1],
+            [1,0,0,0,0,0,0,1],
+            [1,0,0,0,0,0,0,1],
+            [1,0,0,0,0,0,0,1],
+            [1,1,1,1,1,1,1,1]
+        ];
+        const mapWidth = 8, mapHeight = 6;
+
+        // Input handling
+        document.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+        document.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+        let mouseX = 0;
+        canvas.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement === canvas) {
+                mouseX = e.movementX * mouseSensitivity;
+            }
+        });
+        canvas.addEventListener('click', () => canvas.requestPointerLock());
+        document.addEventListener('pointerlockchange', () => {
+            document.getElementById('instructions').style.display = document.pointerLockElement ? 'none' : 'block';
+        });
+
+        // Raycasting render
+        function render() {
+            // Clear with dark gradient (ceiling/floor)
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#111'); // Dark ceiling
+            gradient.addColorStop(1, '#333'); // Dim floor
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            for (let x = 0; x < canvas.width; x++) {
+                const cameraX = 2 * x / canvas.width - 1;
+                const rayDirX = dirX + planeX * cameraX;
+                const rayDirY = dirY + planeY * cameraX;
+                let mapX = Math.floor(posX);
+                let mapY = Math.floor(posY);
+
+                let deltaDistX = Math.abs(1 / rayDirX);
+                let deltaDistY = Math.abs(1 / rayDirY);
+
+                let stepX, stepY, sideDistX, sideDistY;
+                if (rayDirX < 0) {
+                    stepX = -1; sideDistX = (posX - mapX) * deltaDistX;
+                } else {
+                    stepX = 1; sideDistX = (mapX + 1 - posX) * deltaDistX;
+                }
+                if (rayDirY < 0) {
+                    stepY = -1; sideDistY = (posY - mapY) * deltaDistY;
+                } else {
+                    stepY = 1; sideDistY = (mapY + 1 - posY) * deltaDistY;
+                }
+
+                let hit = 0, side;
+                while (hit === 0) {
+                    if (sideDistX < sideDistY) {
+                        sideDistX += deltaDistX;
+                        mapX += stepX;
+                        side = 0;
+                    } else {
+                        sideDistY += deltaDistY;
+                        mapY += stepY;
+                        side = 1;
+                    }
+                    if (map[mapX] && map[mapX][mapY] > 0) hit = 1;
+                }
+
+                let perpWallDist = side === 0 ? (mapX - posX + (1 - stepX) / 2) / rayDirX : (mapY - posY + (1 - stepY) / 2) / rayDirY;
+                let lineHeight = Math.abs(Math.floor(canvas.height / perpWallDist));
+
+                let drawStart = Math.max(0, -lineHeight / 2 + canvas.height / 2);
+                let drawEnd = Math.min(canvas.height - 1, lineHeight / 2 + canvas.height / 2);
+
+                // Wall color with horror flicker
+                let wallColor = side === 1 ? '#555' : '#777'; // Side walls darker
+                if (Math.random() < 0.02) wallColor = '#000'; // Random flicker
+                ctx.fillStyle = wallColor;
+                ctx.fillRect(x, drawStart, 1, drawEnd - drawStart);
+            }
+
+            // HUD update
+            document.getElementById('loopCount').textContent = loopCount;
+        }
+
+        // Update logic
+        function update() {
+            const moveSpeed = 0.1;
+            const rotSpeed = 0.05;
+
+            // Movement
+            if (keys['w']) {
+                if (map[Math.floor(posX + dirX * moveSpeed)][Math.floor(posY)] === 0) posX += dirX * moveSpeed;
+                if (map[Math.floor(posX)][Math.floor(posY + dirY * moveSpeed)] === 0) posY += dirY * moveSpeed;
+            }
+            if (keys['s']) {
+                if (map[Math.floor(posX - dirX * moveSpeed)][Math.floor(posY)] === 0) posX -= dirX * moveSpeed;
+                if (map[Math.floor(posX)][Math.floor(posY - dirY * moveSpeed)] === 0) posY -= dirY * moveSpeed;
+            }
+            if (keys['a']) { // Strafe left
+                const strafeX = dirY * moveSpeed; const strafeY = -dirX * moveSpeed;
+                if (map[Math.floor(posX + strafeX)][Math.floor(posY)] === 0) posX += strafeX;
+                if (map[Math.floor(posX)][Math.floor(posY + strafeY)] === 0) posY += strafeY;
+            }
+            if (keys['d']) { // Strafe right
+                const strafeX = -dirY * moveSpeed; const strafeY = dirX * moveSpeed;
+                if (map[Math.floor(posX + strafeX)][Math.floor(posY)] === 0) posX += strafeX;
+                if (map[Math.floor(posX)][Math.floor(posY + strafeY)] === 0) posY += strafeY;
+            }
+
+            // Rotation
+            if (keys['arrowleft'] || mouseX > 0) {
+                const oldDirX = dirX;
+                dirX = dirX * Math.cos(rotSpeed) - dirY * Math.sin(rotSpeed);
+                dirY = oldDirX * Math.sin(rotSpeed) + dirY * Math.cos(rotSpeed);
+                const oldPlaneX = planeX;
+                planeX = planeX * Math.cos(rotSpeed) - planeY * Math.sin(rotSpeed);
+                planeY = oldPlaneX * Math.sin(rotSpeed) + planeY * Math.cos(rotSpeed);
+                mouseX = Math.max(mouseX - rotSpeed, 0);
+            }
+            if (keys['arrowright'] || mouseX < 0) {
+                const oldDirX = dirX;
+                dirX = dirX * Math.cos(-rotSpeed) - dirY * Math.sin(-rotSpeed);
+                dirY = oldDirX * Math.sin(-rotSpeed) + dirY * Math.cos(-rotSpeed);
+                const oldPlaneX = planeX;
+                planeX = planeX * Math.cos(-rotSpeed) - planeY * Math.sin(-rotSpeed);
+                planeY = oldPlaneX * Math.sin(-rotSpeed) + planeY * Math.cos(-rotSpeed);
+                mouseX = Math.min(mouseX + rotSpeed, 0);
+            }
+
+            // Infinite loop reset
+            if (posY > mapHeight - 2) {
+                posY = 1;
+                loopCount++;
+                time = Date.now();
+                // Horror event every few loops
+                if (loopCount % 3 === 0) {
+                    console.log('...Mother is coming... (Check console for whispers)');
+                    // Add audio here: new Audio('data:audio/wav;base64,...').play(); for static/screams
+                }
+            }
+        }
+
+        // Game loop
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+        gameLoop();
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>
