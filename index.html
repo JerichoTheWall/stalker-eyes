@@ -11,11 +11,14 @@
 </head>
 <body>
     <div id="score">Score: 0</div>
-    <canvas id="gameCanvas" width="380" height="420"></canvas>
+    <canvas id="gameCanvas" width="380" height="500"></canvas>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const tileSize = 20;
+        const rows = 20;
+        const cols = 19;
+        const mazeHeight = rows * tileSize;
         const maze = [
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
             [1,2,2,2,2,2,2,2,2,1,2,2,2,2,2,2,2,2,1],
@@ -39,14 +42,77 @@
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
         ]; // 1=wall, 2=dot, 0=empty
 
-        let pacman = { x: 9, y: 14, dir: 'right', mouthOpen: true };
-        let ghost = { x: 9, y: 8, dir: 'up' };
+        const directions = {
+            up: { dx: 0, dy: -1, rot: -Math.PI / 2 },
+            down: { dx: 0, dy: 1, rot: Math.PI / 2 },
+            left: { dx: -1, dy: 0, rot: Math.PI },
+            right: { dx: 1, dy: 0, rot: 0 }
+        };
+
+        const reverseDirs = {
+            up: 'down',
+            down: 'up',
+            left: 'right',
+            right: 'left'
+        };
+
+        const playerImages = [];
+        playerImages[0] = new Image(); playerImages[0].src = 'assets/pac_closed.png';
+        playerImages[1] = new Image(); playerImages[1].src = 'assets/pac_slight_open.png';
+        playerImages[2] = new Image(); playerImages[2].src = 'assets/pac_open.png';
+        playerImages[3] = new Image(); playerImages[3].src = 'assets/pac_wide_open.png';
+
+        const ghostTypes = ['red', 'pink', 'blue'];
+        const ghostSprites = {};
+        ghostTypes.forEach(type => {
+            ghostSprites[type] = {
+                left: new Image(), right: new Image(), up: new Image(), down: new Image()
+            };
+            ghostSprites[type].left.src = `assets/ghost_${type}_left.png`;
+            ghostSprites[type].right.src = `assets/ghost_${type}_right.png`;
+            ghostSprites[type].up.src = `assets/ghost_${type}_up.png`;
+            ghostSprites[type].down.src = `assets/ghost_${type}_down.png`;
+        });
+
+        let player = {
+            currentX: 9,
+            currentY: 14,
+            dir: 'right',
+            nextDir: null,
+            progress: 0,
+            speed: 2,
+            origSpeed: 2,
+            animFrame: 0,
+            eaten: false
+        };
+
+        let ghosts = [
+            { index: 0, type: 'red', currentX: 9, currentY: 8, dir: 'up', progress: 0, speed: 1.5, origSpeed: 1.5 },
+            { index: 1, type: 'pink', currentX: 8, currentY: 10, dir: 'left', progress: 0, speed: 1.5, origSpeed: 1.5 },
+            { index: 2, type: 'blue', currentX: 10, currentY: 10, dir: 'right', progress: 0, speed: 1.5, origSpeed: 1.5 }
+        ];
+
         let score = 0;
         let gameOver = false;
+        let frameCount = 0;
+        let chaseProb = 0;
+
+        const joystick = {
+            centerX: canvas.width / 2,
+            centerY: canvas.height - 50,
+            radius: 40,
+            thumbX: canvas.width / 2,
+            thumbY: canvas.height - 50,
+            active: false
+        };
+
+        function canMove(x, y) {
+            return x >= 0 && x < cols && y >= 0 && y < rows && maze[y][x] !== 1;
+        }
 
         function drawMaze() {
-            for (let y = 0; y < maze.length; y++) {
-                for (let x = 0; x < maze[y].length; x++) {
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
                     if (maze[y][x] === 1) {
                         ctx.fillStyle = 'blue';
                         ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
@@ -60,93 +126,272 @@
             }
         }
 
-        function drawPacman() {
-            ctx.fillStyle = 'yellow';
-            ctx.beginPath();
-            const angle = pacman.mouthOpen ? 0.2 : 0;
-            let startAngle, endAngle;
-            if (pacman.dir === 'right') { startAngle = angle * Math.PI; endAngle = (2 - angle) * Math.PI; }
-            else if (pacman.dir === 'left') { startAngle = (1 + angle) * Math.PI; endAngle = (1 - angle) * Math.PI; }
-            else if (pacman.dir === 'up') { startAngle = (1.5 + angle) * Math.PI; endAngle = (1.5 - angle) * Math.PI; }
-            else { startAngle = (0.5 + angle) * Math.PI; endAngle = (0.5 - angle) * Math.PI; }
-            ctx.arc(pacman.x * tileSize + tileSize / 2, pacman.y * tileSize + tileSize / 2, tileSize / 2, startAngle, endAngle);
-            ctx.lineTo(pacman.x * tileSize + tileSize / 2, pacman.y * tileSize + tileSize / 2);
-            ctx.fill();
-            pacman.mouthOpen = !pacman.mouthOpen;
-        }
+        function updatePlayer() {
+            const d = directions[player.dir];
+            const halfTile = tileSize / 2;
 
-        function drawGhost() {
-            ctx.fillStyle = 'red';
-            ctx.beginPath();
-            ctx.arc(ghost.x * tileSize + tileSize / 2, ghost.y * tileSize + tileSize / 2, tileSize / 2, 0, Math.PI * 2);
-            ctx.fillRect(ghost.x * tileSize, ghost.y * tileSize + tileSize / 2, tileSize, tileSize / 2);
-            ctx.fill();
-        }
+            if (player.speed === 0) {
+                if (player.nextDir) {
+                    const nd = directions[player.nextDir];
+                    if (canMove(player.currentX + nd.dx, player.currentY + nd.dy)) {
+                        player.dir = player.nextDir;
+                        player.nextDir = null;
+                        player.speed = player.origSpeed;
+                        player.progress = 0;
+                        player.eaten = false;
+                    }
+                }
+                return;
+            }
 
-        function movePacman(dx, dy, newDir) {
-            const newX = pacman.x + dx;
-            const newY = pacman.y + dy;
-            if (newX >= 0 && newX < maze[0].length && newY >= 0 && newY < maze.length && maze[newY][newX] !== 1) {
-                pacman.x = newX;
-                pacman.y = newY;
-                pacman.dir = newDir;
-                if (maze[newY][newX] === 2) {
-                    maze[newY][newX] = 0;
+            player.progress += player.speed;
+            if (player.progress >= halfTile && !player.eaten) {
+                const nextX = player.currentX + d.dx;
+                const nextY = player.currentY + d.dy;
+                if (maze[nextY][nextX] === 2) {
+                    maze[nextY][nextX] = 0;
                     score += 10;
                     document.getElementById('score').innerText = `Score: ${score}`;
+                    player.eaten = true;
+                }
+            }
+
+            if (player.progress >= tileSize) {
+                player.currentX += d.dx;
+                player.currentY += d.dy;
+                player.progress -= tileSize;
+                player.eaten = false;
+
+                if (player.nextDir) {
+                    const nd = directions[player.nextDir];
+                    if (canMove(player.currentX + nd.dx, player.currentY + nd.dy)) {
+                        player.dir = player.nextDir;
+                        player.nextDir = null;
+                    }
+                }
+
+                if (!canMove(player.currentX + d.dx, player.currentY + d.dy)) {
+                    player.speed = 0;
+                }
+            }
+
+            if (player.speed > 0) {
+                player.animFrame++;
+            }
+        }
+
+        function updateGhost(ghost) {
+            const d = directions[ghost.dir];
+
+            if (ghost.speed === 0) return;
+
+            ghost.progress += ghost.speed;
+
+            if (ghost.progress >= tileSize) {
+                ghost.currentX += d.dx;
+                ghost.currentY += d.dy;
+                ghost.progress -= tileSize;
+
+                // Choose next direction
+                let possibleMoves = [];
+                for (let dirKey in directions) {
+                    const nd = directions[dirKey];
+                    const nx = ghost.currentX + nd.dx;
+                    const ny = ghost.currentY + nd.dy;
+                    if (canMove(nx, ny)) {
+                        possibleMoves.push(dirKey);
+                    }
+                }
+                const reverse = reverseDirs[ghost.dir];
+                let nonReverse = possibleMoves.filter(d => d !== reverse);
+                let choices = nonReverse.length > 0 ? nonReverse : possibleMoves;
+
+                let nextDir;
+                if (choices.length > 1 && Math.random() < chaseProb) {
+                    // Targeted choice
+                    let targetX, targetY;
+                    if (ghost.index === 0) {
+                        targetX = player.currentX;
+                        targetY = player.currentY;
+                    } else if (ghost.index === 1) {
+                        const pd = directions[player.dir];
+                        targetX = player.currentX + pd.dx * 4;
+                        targetY = player.currentY + pd.dy * 4;
+                    } else {
+                        const red = ghosts[0];
+                        targetX = 2 * player.currentX - red.currentX;
+                        targetY = 2 * player.currentY - red.currentY;
+                    }
+                    let bestDist = Infinity;
+                    let bestDir = null;
+                    for (let dirKey of choices) {
+                        const nd = directions[dirKey];
+                        const nx = ghost.currentX + nd.dx;
+                        const ny = ghost.currentY + nd.dy;
+                        const dist = (nx - targetX) ** 2 + (ny - targetY) ** 2;
+                        if (dist < bestDist) {
+                            bestDist = dist;
+                            bestDir = dirKey;
+                        }
+                    }
+                    nextDir = bestDir;
+                } else {
+                    // Random choice
+                    nextDir = choices[Math.floor(Math.random() * choices.length)];
+                }
+                ghost.dir = nextDir;
+
+                // Check if can't continue (shouldn't happen)
+                const nd = directions[ghost.dir];
+                if (!canMove(ghost.currentX + nd.dx, ghost.currentY + nd.dy)) {
+                    ghost.speed = 0;
                 }
             }
         }
 
-        function moveGhost() {
-            const directions = [
-                { dx: 0, dy: -1, dir: 'up' },
-                { dx: 0, dy: 1, dir: 'down' },
-                { dx: -1, dy: 0, dir: 'left' },
-                { dx: 1, dy: 0, dir: 'right' }
-            ];
-            const validMoves = directions.filter(d => {
-                const nx = ghost.x + d.dx;
-                const ny = ghost.y + d.dy;
-                return nx >= 0 && nx < maze[0].length && ny >= 0 && ny < maze.length && maze[ny][nx] !== 1;
-            });
-            if (validMoves.length > 0) {
-                const move = validMoves[Math.floor(Math.random() * validMoves.length)];
-                ghost.x += move.dx;
-                ghost.y += move.dy;
-                ghost.dir = move.dir;
+        function checkCollisions() {
+            const pD = directions[player.dir];
+            const pCenterX = (player.currentX + pD.dx * (player.progress / tileSize) + 0.5) * tileSize;
+            const pCenterY = (player.currentY + pD.dy * (player.progress / tileSize) + 0.5) * tileSize;
+
+            for (let ghost of ghosts) {
+                const gD = directions[ghost.dir];
+                const gCenterX = (ghost.currentX + gD.dx * (ghost.progress / tileSize) + 0.5) * tileSize;
+                const gCenterY = (ghost.currentY + gD.dy * (ghost.progress / tileSize) + 0.5) * tileSize;
+
+                if (Math.hypot(pCenterX - gCenterX, pCenterY - gCenterY) < tileSize * 0.8) {
+                    gameOver = true;
+                    alert('Game Over! Score: ' + score);
+                    return;
+                }
             }
         }
 
-        function checkCollision() {
-            if (pacman.x === ghost.x && pacman.y === ghost.y) {
-                gameOver = true;
-                alert('Game Over! Score: ' + score);
-            }
+        function drawPlayer() {
+            const d = directions[player.dir];
+            const posX = player.currentX * tileSize + d.dx * player.progress;
+            const posY = player.currentY * tileSize + d.dy * player.progress;
+            const half = tileSize / 2;
+
+            const mouthFrames = [0, 1, 2, 3, 2, 1];
+            const animIndex = mouthFrames[(player.animFrame / 3 | 0) % mouthFrames.length];
+
+            ctx.save();
+            ctx.translate(posX + half, posY + half);
+            ctx.rotate(d.rot);
+            ctx.drawImage(playerImages[animIndex], -half, -half, tileSize, tileSize);
+            ctx.restore();
+        }
+
+        function drawGhost(ghost) {
+            const d = directions[ghost.dir];
+            const posX = ghost.currentX * tileSize + d.dx * ghost.progress;
+            const posY = ghost.currentY * tileSize + d.dy * ghost.progress;
+
+            const sprite = ghostSprites[ghost.type][ghost.dir];
+            ctx.drawImage(sprite, posX, posY, tileSize, tileSize);
+        }
+
+        function drawJoystick() {
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(joystick.centerX, joystick.centerY, joystick.radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(joystick.thumbX, joystick.thumbY, joystick.radius / 2, 0, Math.PI * 2);
+            ctx.stroke();
         }
 
         function gameLoop() {
             if (gameOver) return;
+
+            frameCount++;
+            chaseProb = Math.min(1, frameCount / (60 * 60)); // Increase over ~60 seconds assuming 60fps
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             drawMaze();
-            drawPacman();
-            drawGhost();
-            checkCollision();
+
+            updatePlayer();
+            ghosts.forEach(updateGhost);
+
+            drawPlayer();
+            ghosts.forEach(drawGhost);
+
+            checkCollisions();
+
+            drawJoystick();
+
             requestAnimationFrame(gameLoop);
         }
 
-        document.addEventListener('keydown', e => {
-            if (gameOver) return;
-            switch (e.key) {
-                case 'ArrowRight': movePacman(1, 0, 'right'); break;
-                case 'ArrowLeft': movePacman(-1, 0, 'left'); break;
-                case 'ArrowUp': movePacman(0, -1, 'up'); break;
-                case 'ArrowDown': movePacman(0, 1, 'down'); break;
+        // Touch controls for joystick
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const tx = touch.clientX - rect.left;
+            const ty = touch.clientY - rect.top;
+            const dist = Math.hypot(tx - joystick.centerX, ty - joystick.centerY);
+            if (dist < joystick.radius * 1.5) {
+                joystick.active = true;
+                joystick.thumbX = tx;
+                joystick.thumbY = ty;
             }
         });
 
-        setInterval(moveGhost, 200); // Ghost moves every 200ms
-        gameLoop();
+        canvas.addEventListener('touchmove', (e) => {
+            if (!joystick.active) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const tx = touch.clientX - rect.left;
+            const ty = touch.clientY - rect.top;
+            let dx = tx - joystick.centerX;
+            let dy = ty - joystick.centerY;
+            const mag = Math.hypot(dx, dy);
+            if (mag > joystick.radius) {
+                dx = dx * joystick.radius / mag;
+                dy = dy * joystick.radius / mag;
+            }
+            joystick.thumbX = joystick.centerX + dx;
+            joystick.thumbY = joystick.centerY + dy;
+
+            let desiredDir = null;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+            if (mag > joystick.radius * 0.3) {
+                if (absDx > absDy) {
+                    desiredDir = dx > 0 ? 'right' : 'left';
+                } else {
+                    desiredDir = dy > 0 ? 'down' : 'up';
+                }
+            }
+            if (desiredDir && desiredDir !== player.dir) {
+                player.nextDir = desiredDir;
+            }
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            joystick.active = false;
+            joystick.thumbX = joystick.centerX;
+            joystick.thumbY = joystick.centerY;
+        });
+
+        // Wait for images to load before starting
+        let imagesLoaded = 0;
+        const totalImages = playerImages.length + ghostTypes.length * 4;
+        function imageLoaded() {
+            imagesLoaded++;
+            if (imagesLoaded === totalImages) {
+                gameLoop();
+            }
+        }
+        playerImages.forEach(img => { img.onload = imageLoaded; });
+        ghostTypes.forEach(type => {
+            Object.values(ghostSprites[type]).forEach(img => { img.onload = imageLoaded; });
+        });
     </script>
 </body>
 </html>
