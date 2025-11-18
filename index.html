@@ -3,61 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Shadow Ship - Mobile Horror</title>
+    <title>Shadow Ship</title>
     <style>
         body { margin:0; padding:0; background:#000; overflow:hidden; }
+        canvas { display:block; }
     </style>
 </head>
 <body>
 
-<script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 
 <script>
 class MainScene extends Phaser.Scene {
-    constructor() {
-        super('MainScene');
-    }
-
-    preload() {
-        // No assets needed
-    }
+    constructor() { super('main'); }
 
     create() {
-        const WORLD_W = 1600;
-        const WORLD_H = 1000;
+        const WORLD_W = 1800;
+        const WORLD_H = 1200;
 
+        this.cameras.main.setBackgroundColor('#000000');
         this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
         this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
 
-        // Dark floor + walls graphics
-        this.mapGraphics = this.add.graphics();
-        this.mapGraphics.fillStyle(0x111133);
-        this.mapGraphics.fillRect(0, 0, WORLD_W, WORLD_H);
-        this.mapGraphics.fillStyle(0x444455);
-        const pillars = [
-            [500,400,250,700], [1100,350,350,200], [800,750,450,250],
-            [250,750,180,350], [1300,700,250,450]
-        ];
+        // Floor + walls
+        const gfx = this.add.graphics();
+        gfx.fillStyle(0x111133);
+        gfx.fillRect(0, 0, WORLD_W, WORLD_H);
+        gfx.fillStyle(0x444466);
+        const pillars = [[600,450,300,800],[1200,400,400,250],[850,800,500,300],[300,800,200,400],[1400,750,300,500]];
         this.walls = this.physics.add.staticGroup();
         pillars.forEach(p => {
-            let [x,y,w,h] = p;
-            let wall = this.walls.create(x, y).setSize(w, h).setVisible(false);
-            this.mapGraphics.fillRect(x-w/2, y-h/2, w, h);
+            const [x,y,w,h] = p;
+            this.walls.create(x,y).setSize(w,h).setVisible(false);
+            gfx.fillRect(x-w/2, y-h/2, w, h);
         });
 
         // Player
-        this.player = this.physics.add.sprite(200, 500, null);
-        this.player.setCircle(18).setTint(0x00ff88);
+        this.player = this.physics.add.sprite(250, 600, null).setCircle(20).setTint(0x00ff99);
         this.player.lastAngle = 0;
         this.player.batteries = [];
         this.player.currentCharge = 0;
         this.player.hasFlashlight = false;
         this.physics.add.collider(this.player, this.walls);
-        this.cameras.main.startFollow(this.player, true, 0.09, 0.09);
+        this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
 
-        // Flashlight pickup
-        this.flashlightItem = this.physics.add.sprite(1350, 800, null)
-            .setCircle(16).setTint(0xffffff);
+        // Flashlight pickup (glowing white circle)
+        this.flashlightItem = this.physics.add.sprite(1500, 900, null).setCircle(18).setTint(0xffffff);
         this.physics.add.overlap(this.player, this.flashlightItem, () => {
             this.player.hasFlashlight = true;
             this.player.currentCharge = 100;
@@ -65,65 +56,57 @@ class MainScene extends Phaser.Scene {
             this.flashlightItem.destroy();
         });
 
-        // Batteries
-        for (let i = 0; i < 9; i++) {
-            let b = this.physics.add.sprite(
-                Phaser.Math.Between(150,1450),
-                Phaser.Math.Between(150,850), null)
-                .setCircle(12).setTint(0xffff55);
+        // Batteries (yellow)
+        for (let i = 0; i < 10; i++) {
+            let b = this.physics.add.sprite(Phaser.Math.Between(200,1600), Phaser.Math.Between(200,1000), null)
+                .setCircle(14).setTint(0xffff00);
             this.physics.add.overlap(this.player, b, () => {
                 this.player.batteries.push(100);
                 b.destroy();
-                this.sound.play('pickup');
             });
         }
 
         // Enemies
         this.enemies = this.physics.add.group();
-        for (let i = 0; i < 7; i++) {
-            let e = this.enemies.create(
-                Phaser.Math.Between(600,1200),
-                Phaser.Math.Between(300,700), null)
-                .setCircle(18).setTint(0x220033);
-            e.health = 80;
-            e.attackTimer = 0;
+        for (let i = 0; i < 8; i++) {
+            let e = this.enemies.create(Phaser.Math.Between(700,1300), Phaser.Math.Between(300,900), null)
+                .setCircle(20).setTint(0x110011);
+            e.health = 100;
         }
         this.physics.add.collider(this.enemies, this.walls);
 
-        // Darkness + light mask
-        this.darkness = this.add.rectangle(0, 0, WORLD_W*3, WORLD_H*3, 0x000000)
-            .setOrigin(0,0).setDepth(20).setAlpha(0.97);
-        this.lightMask = this.add.graphics().setDepth(21);
-        this.lightMask.setBlendMode(Phaser.BlendModes.ERASE);
+        // Darkness overlay
+        this.darkness = this.make.graphics().fillStyle(0x000000).fillRect(0,0,4000,4000);
+        this.darknessMask = this.darkness.createGeometryMask();
+        this.darkness.setDepth(20);
+        this.darkness.setAlpha(0.97);
+        this.light = this.add.graphics().setDepth(21);
+        this.light.setBlendMode(Phaser.BlendModes.ERASE);
 
         // UI
-        this.healthText = this.add.text(15, 15, 'Health: 100', {font:'28px Arial', fill:'#ff3333'})
-            .setScrollFactor(0).setDepth(30);
-        this.batteryText = this.add.text(15, 55, 'Find the flashlight!', {font:'26px Arial', fill:'#ffff55'})
-            .setScrollFactor(0).setDepth(30);
+        this.healthText = this.add.text(20,20,'Health: 100',{font:'32px Arial',fill:'#ff3333'}).setScrollFactor(0).setDepth(30);
+        this.batteryText = this.add.text(20,70,'Find the flashlight!',{font:'30px Arial',fill:'#ffff55'}).setScrollFactor(0).setDepth(30);
 
         // Mobile controls
-        this.joystick = {active:false, baseX:0, baseY:0, force:0, angle:0};
-        this.joyBase = this.add.circle(0,0,90,0xffffff,0.2).setDepth(30).setVisible(false);
-        this.joyThumb = this.add.circle(0,0,45,0xffffff,0.6).setDepth(30).setVisible(false);
+        this.joystick = {active:false, x:0, y:0, force:0, angle:0};
+        this.joyBase = this.add.circle(0,0,100,0xffffff,0.2).setDepth(30).setVisible(false);
+        this.joyThumb = this.add.circle(0,0,50,0xffffff,0.7).setDepth(30).setVisible(false);
 
+        this.flashlightOn = false;
         this.sprinting = false;
         this.sprintTime = 0;
-        this.slowTime = 0;
+        this.playerHealth = 100;
 
         this.input.on('pointerdown', p => {
-            if (p.x < this.scale.width * 0.5) {
+            if (p.x < this.scale.width/2) {
                 // Joystick
                 this.joystick.active = true;
-                this.joystick.baseX = p.x;
-                this.joystick.baseY = p.y;
-                this.joyBase.setPosition(p.x, p.y).setVisible(true);
-                this.joyThumb.setPosition(p.x, p.y).setVisible(true);
+                this.joystick.x = p.x; this.joystick.y = p.y;
+                this.joyBase.setPosition(p.x,p.y).setVisible(true);
+                this.joyThumb.setPosition(p.x,p.y).setVisible(true);
             } else {
-                // Right side = flashlight toggle OR sprint
-                if (this.player.hasFlashlight) {
-                    this.flashlightOn = !this.flashlightOn;
-                }
+                // Right side = toggle flashlight or sprint
+                if (this.player.hasFlashlight) this.flashlightOn = !this.flashlightOn;
                 this.sprinting = true;
                 this.sprintTime = 4;
             }
@@ -131,12 +114,18 @@ class MainScene extends Phaser.Scene {
 
         this.input.on('pointermove', p => {
             if (!this.joystick.active) return;
-            let dx = p.x - this.joystick.baseX;
-            let dy = p.y - this.joystick.baseY;
-            let dist = Math.min(Math.hypot(dx,dy), 90);
-            this.joyThumb.setPosition(this.joystick.baseX + dx * (dist/90)*90/dist, this.joystick.baseY + dy * (dist/90)*90/dist);
-            this.joystick.force = dist / 90;
-            this.joystick.angle = Math.atan2(dy, dx);
+            const dx = p.x - this.joystick.x;
+            const dy = p.y - this.joystick.y;
+            const dist = Math.hypot(dx,dy);
+            const max = 100;
+            if (dist > max) {
+                this.joyThumb.setPosition(this.joystick.x + dx*max/dist, this.joystick.y + dy*max/dist);
+                this.joystick.force = 1;
+            } else {
+                this.joyThumb.setPosition(p.x, p.y);
+                this.joystick.force = dist/max;
+            }
+            this.joystick.angle = Math.atan2(dy,dx);
         });
 
         this.input.on('pointerup', () => {
@@ -145,108 +134,94 @@ class MainScene extends Phaser.Scene {
             this.joyThumb.setVisible(false);
             this.sprinting = false;
         });
-
-        // Simple pickup sound
-        this.sound.add('pickup', {volume: 0.3});
-        this.flashlightOn = false;
-        this.playerHealth = 100;
     }
 
     update(time, delta) {
         delta /= 1000;
 
         // Movement
-        let speed = this.slowTime > 0 ? 80 : 160;
-        if (this.sprinting && this.sprintTime > 0) speed = 340;
+        let speed = this.sprinting && |this.sprintTime > 0 ? 380 : 180;
         if (this.sprintTime > 0) this.sprintTime -= delta;
-        if (this.slowTime > 0) this.slowTime -= delta;
 
         let vx = 0, vy = 0;
-        if (this.joystick.active && this.joystick.force > 0.15) {
+        if (this.joystick.active && this.joystick.force > 0.2) {
             vx = Math.cos(this.joystick.angle) * speed * this.joystick.force;
             vy = Math.sin(this.joystick.angle) * speed * this.joystick.force;
             this.player.lastAngle = this.joystick.angle;
         }
         this.player.setVelocity(vx, vy);
 
-        // Flashlight battery drain
+        // Battery drain
         if (this.flashlightOn && this.player.hasFlashlight && this.player.currentCharge > 0) {
             this.player.currentCharge -= 20 * delta;
             if (this.player.currentCharge <= 0) {
-                if (this.player.batteries.length > 0) {
-                    this.player.currentCharge = this.player.batteries.shift();
-                } else {
-                    this.flashlightOn = false;
-                }
+                if (this.player.batteries.length) this.player.currentCharge = this.player.batteries.shift();
+                else this.flashlightOn = false;
             }
-            this.batteryText.setText(`Battery: ${Math.round(this.player.currentCharge)}% (${this.player.batteries.length} backup)`);
+            this.batteryText.setText(`Battery: ${Math.round(this.player.currentCharge)}% (${this.player.batteries.length} left)`);
         }
 
-        // Light mask
-        this.lightMask.clear();
-        this.lightMask.fillStyle(0xffffff);
-        this.lightMask.fillCircle(this.player.x, this.player.y, 80);
+        // Light cone
+        this.light.clear();
+        this.light.fillStyle(0xffffff);
+        this.light.fillCircle(this.player.x, this.player.y, 90); // personal light
 
         if (this.flashlightOn && this.player.hasFlashlight) {
-            const len = 380;
-            const angle = this.player.lastAngle;
-            const spread = Phaser.Math.DegToRad(45);
-            const lx = this.player.x + Math.cos(angle - spread) * len;
-            const ly = this.player.y + Math.sin(angle - spread) * len;
-            const rx = this.player.x + Math.cos(angle + spread) * len;
-            const ry = this.player.y + Math.sin(angle + spread) * len;
-            this.lightMask.fillTriangle(this.player.x, this.player.y, lx, ly, rx, ry);
+            const len = 420;
+            const a = this.player.lastAngle;
+            const spread = Phaser.Math.DegToRad(48);
+            const lx = this.player.x + Math.cos(a-spread)*len;
+            const ly = this.player.y + Math.sin(a-spread)*len;
+            const rx = this.player.x + Math.cos(a+spread)*len;
+            const ry = this.player.y + Math.sin(a+spread)*len;
+            this.light.fillTriangle(this.player.x, this.player.y, lx, ly, rx, ry);
         }
 
-        // Enemy AI
+        // Enemies
         this.enemies.getChildren().forEach(e => {
             const dx = this.player.x - e.x;
             const dy = this.player.y - e.y;
-            const dist = Math.hypot(dx, dy);
-            const angleToPlayer = Math.atan2(dy, dx);
+            const dist = Math.hypot(dx,dy);
+            const angle = Math.atan2(dy,dx);
 
-            // Damage player if close
-            if (dist < 45) {
-                this.playerHealth -= 35 * delta;
-                this.healthText.setText('Health: ' + Math.round(this.playerHealth));
+            if (dist < 50) {
+                this.playerHealth -= 40 * delta;
+                this.healthText.setText('Health: '+Math.round(this.playerHealth));
                 if (this.playerHealth <= 0) {
                     this.physics.pause();
-                    this.add.text(this.scale.width/2, this.scale.height/2, 'YOU DIED', {
-                        font: '90px Arial', fill: '#ff0000'
-                    }).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+                    this.add.text(this.scale.width/2, this.scale.height/2, 'YOU DIED', 
+                        {font:'100px Arial', fill:'#ff0000'}).setOrigin(0.5).setScrollFactor(0).setDepth(100);
                 }
             }
 
-            // Chase
-            if (dist > 60) {
-                e.setVelocity(Math.cos(angleToPlayer) * 115, Math.sin(angleToPlayer) * 115);
-            } else {
-                e.setVelocity(0,0);
-            }
+            const speed = 120;
+            if (dist > 70) e.setVelocity(Math.cos(angle)*speed, Math.sin(angle)*speed);
+            else e.setVelocity(0,0);
 
-            // Flashlight damage + flee
+            // Flashlight damage
             if (this.flashlightOn && this.player.hasFlashlight) {
-                const angleDiff = Phaser.Math.Angle.Wrap(this.player.lastAngle - angleToPlayer);
-                if (dist < 360 && Math.abs(angleDiff) < Phaser.Math.DegToRad(50)) {
-                    e.health -= 55 * delta;
+                const angleDiff = Math.abs(Phaser.Math.Angle.Wrap(this.player.lastAngle - angle));
+                if (dist < 400 && angleDiff < Phaser.Math.DegToRad(50)) {
+                    e.health -= 60 * delta;
                     if (e.health <= 0) e.destroy();
-                    // Flee from light
-                    e.setVelocity(-Math.cos(angleToPlayer) * 180, -Math.sin(angleToPlayer) * 180);
+                    e.setVelocity(-Math.cos(angle)*200, -Math.sin(angle)*200); // flee
                 }
             }
         });
-
-        this.healthText.setText('Health: ' + Math.round(this.playerHealth));
     }
 }
 
+// IMPORTANT: Fixed config - no window.innerWidth before DOM is ready
 const config = {
     type: Phaser.AUTO,
-    width: window.innerWidth,
-    height: window.innerHeight,
-    parent: 'phaser-game',
+    width: 800,
+    height: 600,
+    parent: document.body,
     physics: { default: 'arcade', arcade: { debug: false } },
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
     backgroundColor: '#000000',
     scene: MainScene
 };
