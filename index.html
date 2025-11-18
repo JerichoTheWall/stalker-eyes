@@ -2,396 +2,278 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Simple Pac-Man Clone</title>
+    <title>Shadow Ship - Mobile Horror Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
     <style>
-        body { background: black; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        canvas { border: 1px solid white; background: black; }
-        #score { color: yellow; font-family: Arial; font-size: 20px; position: absolute; top: 10px; left: 10px; }
+        body { margin:0; padding:0; background:#000; overflow:hidden; }
+        canvas { display:block; margin:0 auto; }
     </style>
 </head>
 <body>
-    <div id="score">Score: 0</div>
-    <canvas id="gameCanvas" width="380" height="500"></canvas>
-    <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        const tileSize = 20;
-        const rows = 20;
-        const cols = 19;
-        const mazeHeight = rows * tileSize;
-        const maze = [
-            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-            [1,2,2,2,2,2,2,2,2,1,2,2,2,2,2,2,2,2,1],
-            [1,2,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,2,1],
-            [1,2,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,2,1],
-            [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
-            [1,2,1,1,2,1,2,1,1,1,1,1,2,1,2,1,1,2,1],
-            [1,2,2,2,2,1,2,2,2,1,2,2,2,1,2,2,2,2,1],
-            [1,1,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,1,1],
-            [0,0,0,1,2,2,2,2,2,0,2,2,2,2,2,1,0,0,0],
-            [1,1,1,1,2,1,1,1,1,0,1,1,1,1,2,1,1,1,1],
-            [2,2,2,2,2,1,2,2,2,0,2,2,2,1,2,2,2,2,2],
-            [1,1,1,1,2,1,2,1,1,1,1,1,2,1,2,1,1,1,1],
-            [1,2,2,2,2,2,2,2,2,1,2,2,2,2,2,2,2,2,1],
-            [1,2,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,2,1],
-            [1,2,2,1,2,2,2,2,2,1,2,2,2,2,2,1,2,2,1],
-            [1,1,2,1,2,1,2,1,1,1,1,1,2,1,2,1,2,1,1],
-            [1,2,2,2,2,1,2,2,2,1,2,2,2,1,2,2,2,2,1],
-            [1,2,1,1,1,1,1,1,2,1,2,1,1,1,1,1,1,2,1],
-            [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
-            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-        ]; // 1=wall, 2=dot, 0=empty
 
-        const directions = {
-            up: { dx: 0, dy: -1, rot: -Math.PI / 2 },
-            down: { dx: 0, dy: 1, rot: Math.PI / 2 },
-            left: { dx: -1, dy: 0, rot: Math.PI },
-            right: { dx: 1, dy: 0, rot: 0 }
-        };
+<script>
+const config = {
+    type: Phaser.AUTO,
+    width: 800,
+    height: 600,
+    physics: { default: 'arcade', arcade: { debug: false } },
+    scene: { preload, create, update },
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    backgroundColor: '#000000'
+};
 
-        const reverseDirs = {
-            up: 'down',
-            down: 'up',
-            left: 'right',
-            right: 'left'
-        };
+new Phaser.Game(config);
 
-        const playerImages = [];
-        playerImages[0] = new Image(); playerImages[0].src = 'assets/pac_closed.png';
-        playerImages[1] = new Image(); playerImages[1].src = 'assets/pac_slight_open.png';
-        playerImages[2] = new Image(); playerImages[2].src = 'assets/pac_open.png';
-        playerImages[3] = new Image(); playerImages[3].src = 'assets/pac_wide_open.png';
+let player, walls, enemies, items = [];
+let blackOverlay, lightGraphics, joyBase, joyThumb;
+let flashlightOn = false;
+let sprinting = false;
+let sprintTimer = 0;
+let slowTimer = 0;
+let playerHealth = 100;
+let currentCharge = 0;
+let batteries = []; // {charge: 100% backups
+let hasFlashlight = false;
+let flashlightItem;
+let healthText, batteryText;
+let joystick = {active: false, force: 0, angle: 0};
+let cursors, keys;
 
-        const ghostTypes = ['red', 'pink', 'blue'];
-        const ghostSprites = {};
-        ghostTypes.forEach(type => {
-            ghostSprites[type] = {
-                left: new Image(), right: new Image(), up: new Image(), down: new Image()
-            };
-            ghostSprites[type].left.src = `assets/ghost_${type}_left.png`;
-            ghostSprites[type].right.src = `assets/ghost_${type}_right.png`;
-            ghostSprites[type].up.src = `assets/ghost_${type}_up.png`;
-            ghostSprites[type].down.src = `assets/ghost_${type}_down.png`;
+function preload() {}
+
+function create() {
+    cursors = this.input.keyboard.createCursorKeys();
+    keys = this.input.keyboard.addKeys('W,A,S,D,F,SPACE');
+
+    const WORLD_W = 1400;
+    const WORLD_H = 900;
+
+    this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
+    this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+
+    // Dark floor
+    let map = this.add.graphics();
+    map.fillStyle(0x111133);
+    map.fillRect(0, 0, WORLD_W, WORLD_H);
+
+    // Walls (pillars you can hide behind)
+    walls = this.physics.add.staticGroup();
+    let pillarData = [
+        400,400,200,600,
+        1000,300,300,150,
+        700,700,400,200,
+        200,700,150,300,
+        1100,650,200,400
+    ];
+    map.fillStyle(0x555555);
+    for (let i = 0; i < pillarData.length; i += 4) {
+        let x = pillarData[i], y = pillarData[i+1], w = pillarData[i+2], h = pillarData[i+3];
+        let wall = walls.create(x, y);
+        wall.setSize(w, h);
+        wall.body.immovable = true;
+        wall.setVisible(false);
+        map.fillRect(x - w/2, y - h/2, w, h);
+    }
+
+    // Player
+    player = this.physics.add.sprite(200, 450, null);
+    player.setCircle(18);
+    player.setTint(0x00ff00);
+    player.lastAngle = 0;
+    player.batteries = [];
+    player.currentCharge = 0;
+    player.hasFlashlight = false;
+    this.physics.add.collider(player, walls);
+
+    // Flashlight item (find it!)
+    flashlightItem = this.physics.add.sprite(1100, 750, null);
+    flashlightItem.setCircle(15);
+    flashlightItem.setTint(0xffffff);
+    this.physics.add.overlap(player, flashlightItem, () => {
+        hasFlashlight = true;
+        currentCharge = 100;
+        batteryText.setText('Battery: 100%');
+        flashlightItem.destroy();
+    });
+
+    // Batteries scattered
+    for (let i = 0; i < 8; i++) {
+        let b = this.physics.add.sprite(Phaser.Math.Between(100,1300), Phaser.Math.Between(100,800), null);
+        b.setCircle(12);
+        b.setTint(0xffff00);
+        b.isBattery = true;
+        this.physics.add.overlap(player, b, () => {
+            player.batteries.push(100);
+            b.destroy();
         });
+    }
 
-        let player = {
-            currentX: 9,
-            currentY: 14,
-            dir: 'right',
-            nextDir: null,
-            progress: 0,
-            speed: 2,
-            origSpeed: 2,
-            animFrame: 0,
-            eaten: false
-        };
-
-        let ghosts = [
-            { index: 0, type: 'red', currentX: 9, currentY: 8, dir: 'up', progress: 0, speed: 1.5, origSpeed: 1.5 },
-            { index: 1, type: 'pink', currentX: 8, currentY: 10, dir: 'left', progress: 0, speed: 1.5, origSpeed: 1.5 },
-            { index: 2, type: 'blue', currentX: 10, currentY: 10, dir: 'right', progress: 0, speed: 1.5, origSpeed: 1.5 }
-        ];
-
-        let score = 0;
-        let gameOver = false;
-        let frameCount = 0;
-        let chaseProb = 0;
-
-        const joystick = {
-            centerX: canvas.width / 2,
-            centerY: canvas.height - 50,
-            radius: 40,
-            thumbX: canvas.width / 2,
-            thumbY: canvas.height - 50,
-            active: false
-        };
-
-        function canMove(x, y) {
-            return x >= 0 && x < cols && y >= 0 && y < rows && maze[y][x] !== 1;
+    // Enemies (shadows)
+    enemies = this.physics.add.group();
+    for (let i = 0; i < 6; i++) {
+        let e = enemies.create(Phaser.Math.Between(400,1000), Phaser.Math.Between(200,700), null);
+        e.setCircle(18);
+        e.setTint(0x000000);
+        e.health = 60;
+    }
+    this.physics.add.collider(enemies, walls);
+    this.physics.add.overlap(player, enemies, () => {
+        playerHealth -= 30; // bite is scary fast if close
+        if (playerHealth <= 0) {
+            this.add.text(400, 300, 'YOU DIED', {font: '80px Arial', fill: '#ff0000'}).setOrigin(0.5);
+            this.physics.pause();
         }
+        healthText.setText('Health: ' + Math.round(playerHealth));
+    });
 
-        function drawMaze() {
-            for (let y = 0; y < rows; y++) {
-                for (let x = 0; x < cols; x++) {
-                    if (maze[y][x] === 1) {
-                        ctx.fillStyle = 'blue';
-                        ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
-                    } else if (maze[y][x] === 2) {
-                        ctx.fillStyle = 'white';
-                        ctx.beginPath();
-                        ctx.arc(x * tileSize + tileSize / 2, y * tileSize + tileSize / 2, 2, 0, Math.PI * 2);
-                        ctx.fill();
-                    }
-                }
-            }
+    // Darkness system
+    blackOverlay = this.add.rectangle(0, 0, WORLD_W*2, WORLD_H*2, 0x000000);
+    blackOverlay.setOrigin(0, 0);
+    blackOverlay.setDepth(20);
+    blackOverlay.setAlpha(0.98); // almost black, tiny ambient
+
+    lightGraphics = this.add.graphics();
+    lightGraphics.setDepth(21);
+    lightGraphics.setBlendMode(Phaser.BlendModes.ERASE);
+
+    // UI
+    healthText = this.add.text(20, 20, 'Health: 100', {font: '28px Arial', fill: '#ff0000'}).setScrollFactor(0).setDepth(30);
+    batteryText = this.add.text(20, 60, 'Find the flashlight!', {font: '28px Arial', fill: '#ffff00'}).setScrollFactor(0).setDepth(30);
+
+    // Mobile joystick (appears on touch left side)
+    joyBase = this.add.circle(0, 0, 90, 0xffffff, 0.25).setVisible(false).setDepth(30);
+    joyThumb = this.add.circle(0, 0, 45, 0xffffff, 0.6).setVisible(false).setDepth(30);
+
+    this.input.on('pointerdown', pointer => {
+        if (pointer.x < this.scale.width * 0.5) { // left half = joystick
+            joystick.active = true;
+            joystick.baseX = pointer.x;
+            joystick.baseY = pointer.y;
+            joyBase.x = pointer.x;
+            joyBase.y = pointer.y;
+            joyThumb.x = pointer.x;
+            joyThumb.y = pointer.y;
+            joyBase.setVisible(true);
+            joyThumb.setVisible(true);
+        } else if (hasFlashlight) { // right side tap = toggle flashlight
+            flashlightOn = !flashlightOn;
         }
+        // hold right side anywhere for sprint
+        if (pointer.x > this.scale.width * 0.5) sprinting = true, sprintTimer = 4;
+    });
 
-        function updatePlayer() {
-            const d = directions[player.dir];
-            const halfTile = tileSize / 2;
-
-            if (player.speed === 0) {
-                if (player.nextDir) {
-                    const nd = directions[player.nextDir];
-                    if (canMove(player.currentX + nd.dx, player.currentY + nd.dy)) {
-                        player.dir = player.nextDir;
-                        player.nextDir = null;
-                        player.speed = player.origSpeed;
-                        player.progress = 0;
-                        player.eaten = false;
-                    }
-                }
-                return;
-            }
-
-            player.progress += player.speed;
-            if (player.progress >= halfTile && !player.eaten) {
-                const nextX = player.currentX + d.dx;
-                const nextY = player.currentY + d.dy;
-                if (maze[nextY][nextX] === 2) {
-                    maze[nextY][nextX] = 0;
-                    score += 10;
-                    document.getElementById('score').innerText = `Score: ${score}`;
-                    player.eaten = true;
-                }
-            }
-
-            if (player.progress >= tileSize) {
-                player.currentX += d.dx;
-                player.currentY += d.dy;
-                player.progress -= tileSize;
-                player.eaten = false;
-
-                if (player.nextDir) {
-                    const nd = directions[player.nextDir];
-                    if (canMove(player.currentX + nd.dx, player.currentY + nd.dy)) {
-                        player.dir = player.nextDir;
-                        player.nextDir = null;
-                    }
-                }
-
-                if (!canMove(player.currentX + d.dx, player.currentY + d.dy)) {
-                    player.speed = 0;
-                }
-            }
-
-            if (player.speed > 0) {
-                player.animFrame++;
-            }
+    this.input.on('pointermove', pointer => {
+        if (joystick.active) {
+            let dx = pointer.x - joystick.baseX;
+            let dy = pointer.y - joystick.baseY;
+            let dist = Math.hypot(dx, dy);
+            if (dist > 90) { dx *= 90 / dist, dy *= 90 / dist, dist = 90;
+            joyThumb.x = joystick.baseX + dx;
+            joyThumb.y = joystick.baseY + dy;
+            joystick.force = dist / 90;
+            joystick.angle = Math.atan2(dy, dx);
         }
+    });
 
-        function updateGhost(ghost) {
-            const d = directions[ghost.dir];
-
-            if (ghost.speed === 0) return;
-
-            ghost.progress += ghost.speed;
-
-            if (ghost.progress >= tileSize) {
-                ghost.currentX += d.dx;
-                ghost.currentY += d.dy;
-                ghost.progress -= tileSize;
-
-                // Choose next direction
-                let possibleMoves = [];
-                for (let dirKey in directions) {
-                    const nd = directions[dirKey];
-                    const nx = ghost.currentX + nd.dx;
-                    const ny = ghost.currentY + nd.dy;
-                    if (canMove(nx, ny)) {
-                        possibleMoves.push(dirKey);
-                    }
-                }
-                const reverse = reverseDirs[ghost.dir];
-                let nonReverse = possibleMoves.filter(d => d !== reverse);
-                let choices = nonReverse.length > 0 ? nonReverse : possibleMoves;
-
-                let nextDir;
-                if (choices.length > 1 && Math.random() < chaseProb) {
-                    // Targeted choice
-                    let targetX, targetY;
-                    if (ghost.index === 0) {
-                        targetX = player.currentX;
-                        targetY = player.currentY;
-                    } else if (ghost.index === 1) {
-                        const pd = directions[player.dir];
-                        targetX = player.currentX + pd.dx * 4;
-                        targetY = player.currentY + pd.dy * 4;
-                    } else {
-                        const red = ghosts[0];
-                        targetX = 2 * player.currentX - red.currentX;
-                        targetY = 2 * player.currentY - red.currentY;
-                    }
-                    let bestDist = Infinity;
-                    let bestDir = null;
-                    for (let dirKey of choices) {
-                        const nd = directions[dirKey];
-                        const nx = ghost.currentX + nd.dx;
-                        const ny = ghost.currentY + nd.dy;
-                        const dist = (nx - targetX) ** 2 + (ny - targetY) ** 2;
-                        if (dist < bestDist) {
-                            bestDist = dist;
-                            bestDir = dirKey;
-                        }
-                    }
-                    nextDir = bestDir;
-                } else {
-                    // Random choice
-                    nextDir = choices[Math.floor(Math.random() * choices.length)];
-                }
-                ghost.dir = nextDir;
-
-                // Check if can't continue (shouldn't happen)
-                const nd = directions[ghost.dir];
-                if (!canMove(ghost.currentX + nd.dx, ghost.currentY + nd.dy)) {
-                    ghost.speed = 0;
-                }
-            }
-        }
-
-        function checkCollisions() {
-            const pD = directions[player.dir];
-            const pCenterX = (player.currentX + pD.dx * (player.progress / tileSize) + 0.5) * tileSize;
-            const pCenterY = (player.currentY + pD.dy * (player.progress / tileSize) + 0.5) * tileSize;
-
-            for (let ghost of ghosts) {
-                const gD = directions[ghost.dir];
-                const gCenterX = (ghost.currentX + gD.dx * (ghost.progress / tileSize) + 0.5) * tileSize;
-                const gCenterY = (ghost.currentY + gD.dy * (ghost.progress / tileSize) + 0.5) * tileSize;
-
-                if (Math.hypot(pCenterX - gCenterX, pCenterY - gCenterY) < tileSize * 0.8) {
-                    gameOver = true;
-                    alert('Game Over! Score: ' + score);
-                    return;
-                }
-            }
-        }
-
-        function drawPlayer() {
-            const d = directions[player.dir];
-            const posX = player.currentX * tileSize + d.dx * player.progress;
-            const posY = player.currentY * tileSize + d.dy * player.progress;
-            const half = tileSize / 2;
-
-            const mouthFrames = [0, 1, 2, 3, 2, 1];
-            const animIndex = mouthFrames[(player.animFrame / 3 | 0) % mouthFrames.length];
-
-            ctx.save();
-            ctx.translate(posX + half, posY + half);
-            ctx.rotate(d.rot);
-            ctx.drawImage(playerImages[animIndex], -half, -half, tileSize, tileSize);
-            ctx.restore();
-        }
-
-        function drawGhost(ghost) {
-            const d = directions[ghost.dir];
-            const posX = ghost.currentX * tileSize + d.dx * ghost.progress;
-            const posY = ghost.currentY * tileSize + d.dy * ghost.progress;
-
-            const sprite = ghostSprites[ghost.type][ghost.dir];
-            ctx.drawImage(sprite, posX, posY, tileSize, tileSize);
-        }
-
-        function drawJoystick() {
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(joystick.centerX, joystick.centerY, joystick.radius, 0, Math.PI * 2);
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.arc(joystick.thumbX, joystick.thumbY, joystick.radius / 2, 0, Math.PI * 2);
-            ctx.stroke();
-        }
-
-        function gameLoop() {
-            if (gameOver) return;
-
-            frameCount++;
-            chaseProb = Math.min(1, frameCount / (60 * 60)); // Increase over ~60 seconds assuming 60fps
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawMaze();
-
-            updatePlayer();
-            ghosts.forEach(updateGhost);
-
-            drawPlayer();
-            ghosts.forEach(drawGhost);
-
-            checkCollisions();
-
-            drawJoystick();
-
-            requestAnimationFrame(gameLoop);
-        }
-
-        // Touch controls for joystick
-        canvas.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            const touch = e.touches[0];
-            const rect = canvas.getBoundingClientRect();
-            const tx = touch.clientX - rect.left;
-            const ty = touch.clientY - rect.top;
-            const dist = Math.hypot(tx - joystick.centerX, ty - joystick.centerY);
-            if (dist < joystick.radius * 1.5) {
-                joystick.active = true;
-                joystick.thumbX = tx;
-                joystick.thumbY = ty;
-            }
-        });
-
-        canvas.addEventListener('touchmove', (e) => {
-            if (!joystick.active) return;
-            e.preventDefault();
-            const touch = e.touches[0];
-            const rect = canvas.getBoundingClientRect();
-            const tx = touch.clientX - rect.left;
-            const ty = touch.clientY - rect.top;
-            let dx = tx - joystick.centerX;
-            let dy = ty - joystick.centerY;
-            const mag = Math.hypot(dx, dy);
-            if (mag > joystick.radius) {
-                dx = dx * joystick.radius / mag;
-                dy = dy * joystick.radius / mag;
-            }
-            joystick.thumbX = joystick.centerX + dx;
-            joystick.thumbY = joystick.centerY + dy;
-
-            let desiredDir = null;
-            const absDx = Math.abs(dx);
-            const absDy = Math.abs(dy);
-            if (mag > joystick.radius * 0.3) {
-                if (absDx > absDy) {
-                    desiredDir = dx > 0 ? 'right' : 'left';
-                } else {
-                    desiredDir = dy > 0 ? 'down' : 'up';
-                }
-            }
-            if (desiredDir && desiredDir !== player.dir) {
-                player.nextDir = desiredDir;
-            }
-        });
-
-        canvas.addEventListener('touchend', (e) => {
+    this.input.on('pointerup', () => {
+        if (joystick.active) {
             joystick.active = false;
-            joystick.thumbX = joystick.centerX;
-            joystick.thumbY = joystick.centerY;
-        });
+            joyBase.setVisible(false);
+            joyThumb.setVisible(false);
+        }
+        sprinting = false;
+    });
 
-        // Wait for images to load before starting
-        let imagesLoaded = 0;
-        const totalImages = playerImages.length + ghostTypes.length * 4;
-        function imageLoaded() {
-            imagesLoaded++;
-            if (imagesLoaded === totalImages) {
-                gameLoop();
+    this.cameras.main.startFollow(player, true, 0.08, 0.08);
+}
+
+function update(time, delta) {
+    delta /= 1000; // seconds
+
+    // MOVEMENT
+    let baseSpeed = 160;
+    if (slowTimer > 0) baseSpeed = 80, slowTimer -= delta;
+    else if (sprinting && sprintTimer > 0) baseSpeed = 320, sprintTimer -= delta;
+
+    let vx = 0, vy = 0;
+    if (joystick.active && joystick.force > 0.1) {
+        vx = Math.cos(joystick.angle) * baseSpeed * joystick.force;
+        vy = Math.sin(joystick.angle) * baseSpeed * joystick.force;
+        player.lastAngle = joystick.angle;
+    } else {
+        // keyboard
+        if (cursors.left.isDown || keys.A.isDown) vx -= baseSpeed;
+        if (cursors.right.isDown || keys.D.isDown) vx += baseSpeed;
+        if (cursors.up.isDown || keys.W.isDown) vy -= baseSpeed;
+        if (cursors.down.isDown || keys.S.isDown) vy += baseSpeed;
+        if (vx !== 0 || vy !== 0) player.lastAngle = Math.atan2(vy, vx);
+        if (keys.SPACE.isDown) sprinting = true, sprintTimer = 4;
+    }
+    player.body.velocity.set(vx, vy);
+
+    // FLASHLIGHT DRAIN
+    if (flashlightOn && hasFlashlight && currentCharge > 0) {
+        currentCharge -= 20 * delta;
+        if (currentCharge <= 0) {
+            if (player.batteries.length > 0) currentCharge = player.batteries.shift();
+            else flashlightOn = false;
+        }
+        batteryText.setText(`Battery: ${Math.round(currentCharge)}% (${player.batteries.length} backup)`);
+    } else if (hasFlashlight) {
+        batteryText.setText(`Battery: ${Math.round(currentCharge)}% (${player.batteries.length} backup)`);
+    }
+
+    // LIGHTING (erase darkness)
+    lightGraphics.clear();
+    lightGraphics.fillStyle(0xffffff);
+    lightGraphics.fillCircle(player.x, player.y, 70); // always see your feet
+
+    if (flashlightOn && hasFlashlight) {
+        let length = 320;
+        let angle = player.lastAngle;
+        let half = Phaser.Math.DegToRad(50); // wide beam
+        let lx = player.x + Math.cos(angle - half) * length;
+        let ly = player.y + Math.sin(angle - half) * length;
+        let rx = player.x + Math.cos(angle + half) * length;
+        let ry = player.y + Math.sin(angle + half) * length;
+        lightGraphics.fillTriangle(player.x, player.y, lx, ly, rx, ry);
+    }
+
+    // ENEMIES AI - chase player, die to light
+    enemies.getChildren().forEach(e => {
+        let dx = player.x - e.x;
+        let dy = player.y - e.y;
+        let dist = Math.hypot(dx, dy);
+        let enemySpeed = 110;
+
+        if (dist < 50) { // bite
+            playerHealth -= 40 * delta;
+            healthText.setText('Health: ' + Math.round(playerHealth));
+            if (playerHealth <= 0) this.physics.pause(), this.add.text(400, 300, 'YOU DIED', {font: '80px Arial', fill: '#ff0000'}).setOrigin(0.5);
+        }
+
+        if (dist > 40) {
+            e.body.velocity.x = (dx / dist) * enemySpeed;
+            e.body.velocity.y = (dy / dist) * enemySpeed;
+        }
+
+        // damage from flashlight
+        if (flashlightOn && hasFlashlight) {
+            let aDiff = Phaser.Math.Angle.Wrap(player.lastAngle - Math.atan2(dy, dx));
+            if (dist < 320 && Math.abs(aDiff) < Phaser.Math.DegToRad(50)) {
+                e.health -= 40 * delta;
+                if (e.health <= 0) e.destroy();
+                // flee a bit
+                e.body.velocity.x = -dx / dist * enemySpeed * 1.5;
+                e.body.velocity.y = -dy / dist * enemySpeed * 1.5;
             }
         }
-        playerImages.forEach(img => { img.onload = imageLoaded; });
-        ghostTypes.forEach(type => {
-            Object.values(ghostSprites[type]).forEach(img => { img.onload = imageLoaded; });
-        });
-    </script>
+    });
+
+    healthText.setText('Health: ' + Math.round(playerHealth));
+}
+</script>
+
 </body>
 </html>
