@@ -2,278 +2,256 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Shadow Ship - Mobile Horror Game</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+    <title>Shadow Ship - Mobile Horror</title>
     <style>
         body { margin:0; padding:0; background:#000; overflow:hidden; }
-        canvas { display:block; margin:0 auto; }
     </style>
 </head>
 <body>
 
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+
 <script>
+class MainScene extends Phaser.Scene {
+    constructor() {
+        super('MainScene');
+    }
+
+    preload() {
+        // No assets needed
+    }
+
+    create() {
+        const WORLD_W = 1600;
+        const WORLD_H = 1000;
+
+        this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
+        this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+
+        // Dark floor + walls graphics
+        this.mapGraphics = this.add.graphics();
+        this.mapGraphics.fillStyle(0x111133);
+        this.mapGraphics.fillRect(0, 0, WORLD_W, WORLD_H);
+        this.mapGraphics.fillStyle(0x444455);
+        const pillars = [
+            [500,400,250,700], [1100,350,350,200], [800,750,450,250],
+            [250,750,180,350], [1300,700,250,450]
+        ];
+        this.walls = this.physics.add.staticGroup();
+        pillars.forEach(p => {
+            let [x,y,w,h] = p;
+            let wall = this.walls.create(x, y).setSize(w, h).setVisible(false);
+            this.mapGraphics.fillRect(x-w/2, y-h/2, w, h);
+        });
+
+        // Player
+        this.player = this.physics.add.sprite(200, 500, null);
+        this.player.setCircle(18).setTint(0x00ff88);
+        this.player.lastAngle = 0;
+        this.player.batteries = [];
+        this.player.currentCharge = 0;
+        this.player.hasFlashlight = false;
+        this.physics.add.collider(this.player, this.walls);
+        this.cameras.main.startFollow(this.player, true, 0.09, 0.09);
+
+        // Flashlight pickup
+        this.flashlightItem = this.physics.add.sprite(1350, 800, null)
+            .setCircle(16).setTint(0xffffff);
+        this.physics.add.overlap(this.player, this.flashlightItem, () => {
+            this.player.hasFlashlight = true;
+            this.player.currentCharge = 100;
+            this.batteryText.setText('Battery: 100%');
+            this.flashlightItem.destroy();
+        });
+
+        // Batteries
+        for (let i = 0; i < 9; i++) {
+            let b = this.physics.add.sprite(
+                Phaser.Math.Between(150,1450),
+                Phaser.Math.Between(150,850), null)
+                .setCircle(12).setTint(0xffff55);
+            this.physics.add.overlap(this.player, b, () => {
+                this.player.batteries.push(100);
+                b.destroy();
+                this.sound.play('pickup');
+            });
+        }
+
+        // Enemies
+        this.enemies = this.physics.add.group();
+        for (let i = 0; i < 7; i++) {
+            let e = this.enemies.create(
+                Phaser.Math.Between(600,1200),
+                Phaser.Math.Between(300,700), null)
+                .setCircle(18).setTint(0x220033);
+            e.health = 80;
+            e.attackTimer = 0;
+        }
+        this.physics.add.collider(this.enemies, this.walls);
+
+        // Darkness + light mask
+        this.darkness = this.add.rectangle(0, 0, WORLD_W*3, WORLD_H*3, 0x000000)
+            .setOrigin(0,0).setDepth(20).setAlpha(0.97);
+        this.lightMask = this.add.graphics().setDepth(21);
+        this.lightMask.setBlendMode(Phaser.BlendModes.ERASE);
+
+        // UI
+        this.healthText = this.add.text(15, 15, 'Health: 100', {font:'28px Arial', fill:'#ff3333'})
+            .setScrollFactor(0).setDepth(30);
+        this.batteryText = this.add.text(15, 55, 'Find the flashlight!', {font:'26px Arial', fill:'#ffff55'})
+            .setScrollFactor(0).setDepth(30);
+
+        // Mobile controls
+        this.joystick = {active:false, baseX:0, baseY:0, force:0, angle:0};
+        this.joyBase = this.add.circle(0,0,90,0xffffff,0.2).setDepth(30).setVisible(false);
+        this.joyThumb = this.add.circle(0,0,45,0xffffff,0.6).setDepth(30).setVisible(false);
+
+        this.sprinting = false;
+        this.sprintTime = 0;
+        this.slowTime = 0;
+
+        this.input.on('pointerdown', p => {
+            if (p.x < this.scale.width * 0.5) {
+                // Joystick
+                this.joystick.active = true;
+                this.joystick.baseX = p.x;
+                this.joystick.baseY = p.y;
+                this.joyBase.setPosition(p.x, p.y).setVisible(true);
+                this.joyThumb.setPosition(p.x, p.y).setVisible(true);
+            } else {
+                // Right side = flashlight toggle OR sprint
+                if (this.player.hasFlashlight) {
+                    this.flashlightOn = !this.flashlightOn;
+                }
+                this.sprinting = true;
+                this.sprintTime = 4;
+            }
+        });
+
+        this.input.on('pointermove', p => {
+            if (!this.joystick.active) return;
+            let dx = p.x - this.joystick.baseX;
+            let dy = p.y - this.joystick.baseY;
+            let dist = Math.min(Math.hypot(dx,dy), 90);
+            this.joyThumb.setPosition(this.joystick.baseX + dx * (dist/90)*90/dist, this.joystick.baseY + dy * (dist/90)*90/dist);
+            this.joystick.force = dist / 90;
+            this.joystick.angle = Math.atan2(dy, dx);
+        });
+
+        this.input.on('pointerup', () => {
+            this.joystick.active = false;
+            this.joyBase.setVisible(false);
+            this.joyThumb.setVisible(false);
+            this.sprinting = false;
+        });
+
+        // Simple pickup sound
+        this.sound.add('pickup', {volume: 0.3});
+        this.flashlightOn = false;
+        this.playerHealth = 100;
+    }
+
+    update(time, delta) {
+        delta /= 1000;
+
+        // Movement
+        let speed = this.slowTime > 0 ? 80 : 160;
+        if (this.sprinting && this.sprintTime > 0) speed = 340;
+        if (this.sprintTime > 0) this.sprintTime -= delta;
+        if (this.slowTime > 0) this.slowTime -= delta;
+
+        let vx = 0, vy = 0;
+        if (this.joystick.active && this.joystick.force > 0.15) {
+            vx = Math.cos(this.joystick.angle) * speed * this.joystick.force;
+            vy = Math.sin(this.joystick.angle) * speed * this.joystick.force;
+            this.player.lastAngle = this.joystick.angle;
+        }
+        this.player.setVelocity(vx, vy);
+
+        // Flashlight battery drain
+        if (this.flashlightOn && this.player.hasFlashlight && this.player.currentCharge > 0) {
+            this.player.currentCharge -= 20 * delta;
+            if (this.player.currentCharge <= 0) {
+                if (this.player.batteries.length > 0) {
+                    this.player.currentCharge = this.player.batteries.shift();
+                } else {
+                    this.flashlightOn = false;
+                }
+            }
+            this.batteryText.setText(`Battery: ${Math.round(this.player.currentCharge)}% (${this.player.batteries.length} backup)`);
+        }
+
+        // Light mask
+        this.lightMask.clear();
+        this.lightMask.fillStyle(0xffffff);
+        this.lightMask.fillCircle(this.player.x, this.player.y, 80);
+
+        if (this.flashlightOn && this.player.hasFlashlight) {
+            const len = 380;
+            const angle = this.player.lastAngle;
+            const spread = Phaser.Math.DegToRad(45);
+            const lx = this.player.x + Math.cos(angle - spread) * len;
+            const ly = this.player.y + Math.sin(angle - spread) * len;
+            const rx = this.player.x + Math.cos(angle + spread) * len;
+            const ry = this.player.y + Math.sin(angle + spread) * len;
+            this.lightMask.fillTriangle(this.player.x, this.player.y, lx, ly, rx, ry);
+        }
+
+        // Enemy AI
+        this.enemies.getChildren().forEach(e => {
+            const dx = this.player.x - e.x;
+            const dy = this.player.y - e.y;
+            const dist = Math.hypot(dx, dy);
+            const angleToPlayer = Math.atan2(dy, dx);
+
+            // Damage player if close
+            if (dist < 45) {
+                this.playerHealth -= 35 * delta;
+                this.healthText.setText('Health: ' + Math.round(this.playerHealth));
+                if (this.playerHealth <= 0) {
+                    this.physics.pause();
+                    this.add.text(this.scale.width/2, this.scale.height/2, 'YOU DIED', {
+                        font: '90px Arial', fill: '#ff0000'
+                    }).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+                }
+            }
+
+            // Chase
+            if (dist > 60) {
+                e.setVelocity(Math.cos(angleToPlayer) * 115, Math.sin(angleToPlayer) * 115);
+            } else {
+                e.setVelocity(0,0);
+            }
+
+            // Flashlight damage + flee
+            if (this.flashlightOn && this.player.hasFlashlight) {
+                const angleDiff = Phaser.Math.Angle.Wrap(this.player.lastAngle - angleToPlayer);
+                if (dist < 360 && Math.abs(angleDiff) < Phaser.Math.DegToRad(50)) {
+                    e.health -= 55 * delta;
+                    if (e.health <= 0) e.destroy();
+                    // Flee from light
+                    e.setVelocity(-Math.cos(angleToPlayer) * 180, -Math.sin(angleToPlayer) * 180);
+                }
+            }
+        });
+
+        this.healthText.setText('Health: ' + Math.round(this.playerHealth));
+    }
+}
+
 const config = {
     type: Phaser.AUTO,
-    width: 800,
-    height: 600,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    parent: 'phaser-game',
     physics: { default: 'arcade', arcade: { debug: false } },
-    scene: { preload, create, update },
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-    backgroundColor: '#000000'
+    backgroundColor: '#000000',
+    scene: MainScene
 };
 
 new Phaser.Game(config);
-
-let player, walls, enemies, items = [];
-let blackOverlay, lightGraphics, joyBase, joyThumb;
-let flashlightOn = false;
-let sprinting = false;
-let sprintTimer = 0;
-let slowTimer = 0;
-let playerHealth = 100;
-let currentCharge = 0;
-let batteries = []; // {charge: 100% backups
-let hasFlashlight = false;
-let flashlightItem;
-let healthText, batteryText;
-let joystick = {active: false, force: 0, angle: 0};
-let cursors, keys;
-
-function preload() {}
-
-function create() {
-    cursors = this.input.keyboard.createCursorKeys();
-    keys = this.input.keyboard.addKeys('W,A,S,D,F,SPACE');
-
-    const WORLD_W = 1400;
-    const WORLD_H = 900;
-
-    this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
-    this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
-
-    // Dark floor
-    let map = this.add.graphics();
-    map.fillStyle(0x111133);
-    map.fillRect(0, 0, WORLD_W, WORLD_H);
-
-    // Walls (pillars you can hide behind)
-    walls = this.physics.add.staticGroup();
-    let pillarData = [
-        400,400,200,600,
-        1000,300,300,150,
-        700,700,400,200,
-        200,700,150,300,
-        1100,650,200,400
-    ];
-    map.fillStyle(0x555555);
-    for (let i = 0; i < pillarData.length; i += 4) {
-        let x = pillarData[i], y = pillarData[i+1], w = pillarData[i+2], h = pillarData[i+3];
-        let wall = walls.create(x, y);
-        wall.setSize(w, h);
-        wall.body.immovable = true;
-        wall.setVisible(false);
-        map.fillRect(x - w/2, y - h/2, w, h);
-    }
-
-    // Player
-    player = this.physics.add.sprite(200, 450, null);
-    player.setCircle(18);
-    player.setTint(0x00ff00);
-    player.lastAngle = 0;
-    player.batteries = [];
-    player.currentCharge = 0;
-    player.hasFlashlight = false;
-    this.physics.add.collider(player, walls);
-
-    // Flashlight item (find it!)
-    flashlightItem = this.physics.add.sprite(1100, 750, null);
-    flashlightItem.setCircle(15);
-    flashlightItem.setTint(0xffffff);
-    this.physics.add.overlap(player, flashlightItem, () => {
-        hasFlashlight = true;
-        currentCharge = 100;
-        batteryText.setText('Battery: 100%');
-        flashlightItem.destroy();
-    });
-
-    // Batteries scattered
-    for (let i = 0; i < 8; i++) {
-        let b = this.physics.add.sprite(Phaser.Math.Between(100,1300), Phaser.Math.Between(100,800), null);
-        b.setCircle(12);
-        b.setTint(0xffff00);
-        b.isBattery = true;
-        this.physics.add.overlap(player, b, () => {
-            player.batteries.push(100);
-            b.destroy();
-        });
-    }
-
-    // Enemies (shadows)
-    enemies = this.physics.add.group();
-    for (let i = 0; i < 6; i++) {
-        let e = enemies.create(Phaser.Math.Between(400,1000), Phaser.Math.Between(200,700), null);
-        e.setCircle(18);
-        e.setTint(0x000000);
-        e.health = 60;
-    }
-    this.physics.add.collider(enemies, walls);
-    this.physics.add.overlap(player, enemies, () => {
-        playerHealth -= 30; // bite is scary fast if close
-        if (playerHealth <= 0) {
-            this.add.text(400, 300, 'YOU DIED', {font: '80px Arial', fill: '#ff0000'}).setOrigin(0.5);
-            this.physics.pause();
-        }
-        healthText.setText('Health: ' + Math.round(playerHealth));
-    });
-
-    // Darkness system
-    blackOverlay = this.add.rectangle(0, 0, WORLD_W*2, WORLD_H*2, 0x000000);
-    blackOverlay.setOrigin(0, 0);
-    blackOverlay.setDepth(20);
-    blackOverlay.setAlpha(0.98); // almost black, tiny ambient
-
-    lightGraphics = this.add.graphics();
-    lightGraphics.setDepth(21);
-    lightGraphics.setBlendMode(Phaser.BlendModes.ERASE);
-
-    // UI
-    healthText = this.add.text(20, 20, 'Health: 100', {font: '28px Arial', fill: '#ff0000'}).setScrollFactor(0).setDepth(30);
-    batteryText = this.add.text(20, 60, 'Find the flashlight!', {font: '28px Arial', fill: '#ffff00'}).setScrollFactor(0).setDepth(30);
-
-    // Mobile joystick (appears on touch left side)
-    joyBase = this.add.circle(0, 0, 90, 0xffffff, 0.25).setVisible(false).setDepth(30);
-    joyThumb = this.add.circle(0, 0, 45, 0xffffff, 0.6).setVisible(false).setDepth(30);
-
-    this.input.on('pointerdown', pointer => {
-        if (pointer.x < this.scale.width * 0.5) { // left half = joystick
-            joystick.active = true;
-            joystick.baseX = pointer.x;
-            joystick.baseY = pointer.y;
-            joyBase.x = pointer.x;
-            joyBase.y = pointer.y;
-            joyThumb.x = pointer.x;
-            joyThumb.y = pointer.y;
-            joyBase.setVisible(true);
-            joyThumb.setVisible(true);
-        } else if (hasFlashlight) { // right side tap = toggle flashlight
-            flashlightOn = !flashlightOn;
-        }
-        // hold right side anywhere for sprint
-        if (pointer.x > this.scale.width * 0.5) sprinting = true, sprintTimer = 4;
-    });
-
-    this.input.on('pointermove', pointer => {
-        if (joystick.active) {
-            let dx = pointer.x - joystick.baseX;
-            let dy = pointer.y - joystick.baseY;
-            let dist = Math.hypot(dx, dy);
-            if (dist > 90) { dx *= 90 / dist, dy *= 90 / dist, dist = 90;
-            joyThumb.x = joystick.baseX + dx;
-            joyThumb.y = joystick.baseY + dy;
-            joystick.force = dist / 90;
-            joystick.angle = Math.atan2(dy, dx);
-        }
-    });
-
-    this.input.on('pointerup', () => {
-        if (joystick.active) {
-            joystick.active = false;
-            joyBase.setVisible(false);
-            joyThumb.setVisible(false);
-        }
-        sprinting = false;
-    });
-
-    this.cameras.main.startFollow(player, true, 0.08, 0.08);
-}
-
-function update(time, delta) {
-    delta /= 1000; // seconds
-
-    // MOVEMENT
-    let baseSpeed = 160;
-    if (slowTimer > 0) baseSpeed = 80, slowTimer -= delta;
-    else if (sprinting && sprintTimer > 0) baseSpeed = 320, sprintTimer -= delta;
-
-    let vx = 0, vy = 0;
-    if (joystick.active && joystick.force > 0.1) {
-        vx = Math.cos(joystick.angle) * baseSpeed * joystick.force;
-        vy = Math.sin(joystick.angle) * baseSpeed * joystick.force;
-        player.lastAngle = joystick.angle;
-    } else {
-        // keyboard
-        if (cursors.left.isDown || keys.A.isDown) vx -= baseSpeed;
-        if (cursors.right.isDown || keys.D.isDown) vx += baseSpeed;
-        if (cursors.up.isDown || keys.W.isDown) vy -= baseSpeed;
-        if (cursors.down.isDown || keys.S.isDown) vy += baseSpeed;
-        if (vx !== 0 || vy !== 0) player.lastAngle = Math.atan2(vy, vx);
-        if (keys.SPACE.isDown) sprinting = true, sprintTimer = 4;
-    }
-    player.body.velocity.set(vx, vy);
-
-    // FLASHLIGHT DRAIN
-    if (flashlightOn && hasFlashlight && currentCharge > 0) {
-        currentCharge -= 20 * delta;
-        if (currentCharge <= 0) {
-            if (player.batteries.length > 0) currentCharge = player.batteries.shift();
-            else flashlightOn = false;
-        }
-        batteryText.setText(`Battery: ${Math.round(currentCharge)}% (${player.batteries.length} backup)`);
-    } else if (hasFlashlight) {
-        batteryText.setText(`Battery: ${Math.round(currentCharge)}% (${player.batteries.length} backup)`);
-    }
-
-    // LIGHTING (erase darkness)
-    lightGraphics.clear();
-    lightGraphics.fillStyle(0xffffff);
-    lightGraphics.fillCircle(player.x, player.y, 70); // always see your feet
-
-    if (flashlightOn && hasFlashlight) {
-        let length = 320;
-        let angle = player.lastAngle;
-        let half = Phaser.Math.DegToRad(50); // wide beam
-        let lx = player.x + Math.cos(angle - half) * length;
-        let ly = player.y + Math.sin(angle - half) * length;
-        let rx = player.x + Math.cos(angle + half) * length;
-        let ry = player.y + Math.sin(angle + half) * length;
-        lightGraphics.fillTriangle(player.x, player.y, lx, ly, rx, ry);
-    }
-
-    // ENEMIES AI - chase player, die to light
-    enemies.getChildren().forEach(e => {
-        let dx = player.x - e.x;
-        let dy = player.y - e.y;
-        let dist = Math.hypot(dx, dy);
-        let enemySpeed = 110;
-
-        if (dist < 50) { // bite
-            playerHealth -= 40 * delta;
-            healthText.setText('Health: ' + Math.round(playerHealth));
-            if (playerHealth <= 0) this.physics.pause(), this.add.text(400, 300, 'YOU DIED', {font: '80px Arial', fill: '#ff0000'}).setOrigin(0.5);
-        }
-
-        if (dist > 40) {
-            e.body.velocity.x = (dx / dist) * enemySpeed;
-            e.body.velocity.y = (dy / dist) * enemySpeed;
-        }
-
-        // damage from flashlight
-        if (flashlightOn && hasFlashlight) {
-            let aDiff = Phaser.Math.Angle.Wrap(player.lastAngle - Math.atan2(dy, dx));
-            if (dist < 320 && Math.abs(aDiff) < Phaser.Math.DegToRad(50)) {
-                e.health -= 40 * delta;
-                if (e.health <= 0) e.destroy();
-                // flee a bit
-                e.body.velocity.x = -dx / dist * enemySpeed * 1.5;
-                e.body.velocity.y = -dy / dist * enemySpeed * 1.5;
-            }
-        }
-    });
-
-    healthText.setText('Health: ' + Math.round(playerHealth));
-}
 </script>
-
 </body>
 </html>
